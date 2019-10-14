@@ -84,7 +84,6 @@ if __name__ == '__main__':
         start_state_exclude_rooms=args.start_state_exclude_rooms
 
     )
-
     # instantiate the exact same environment when, say, we perform RL / demonstration data gathering for this environment.
     with open(os.path.join(save_dir, 'cell_cat_map.pkl'), 'wb') as f:
         pickle.dump({'cell_cat_map' : env.cell_cat_map}, f)
