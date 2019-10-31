@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+<<<<<<< HEAD
+=======
+from a2c_ppo_acktr.algo.kfac import KFACOptimizer
+
+>>>>>>> actor-critic
 
 class A2C_ACKTR():
     def __init__(self,
@@ -44,6 +49,10 @@ class A2C_ACKTR():
 
         action_loss = -(advantages.detach() * action_log_probs).mean()
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> actor-critic
         self.optimizer.zero_grad()
         (value_loss * self.value_loss_coef + action_loss -
          dist_entropy * self.entropy_coef).backward()

@@ -4,7 +4,7 @@ from itertools import product
 from gym import spaces
 
 import gym_minigrid
-from gym_minigrid.minigrid import Goal, Grid, Wall
+from gym_minigrid.minigrid import Goal, Grid
 
 import sys
 # Do a hacky thing for now
@@ -13,11 +13,11 @@ sys.path.append(str(Path(__file__).parent))
 
 from minigrid_simple import MiniGridSimple
 
-class NineRoomsEnv(MiniGridSimple):
+class EmptyGridWorld(MiniGridSimple):
 
     # Only 4 actions needed, left, right, up and down
 
-    class NineRoomsCardinalActions(IntEnum):
+    class CardnalActions(IntEnum):
         # Cardinal movement
         right = 0
         down = 1
@@ -30,23 +30,19 @@ class NineRoomsEnv(MiniGridSimple):
     def __init__(
         self,
         grid_size=20,
-        passage_size=1,
         max_steps=100,
+        state_encoding="thermal",
         seed=133,
         rnd_start=0,
-        start_state_exclude_rooms=[],
     ):
-        
+
+        self.state_encoding = state_encoding 
         self.grid_size = grid_size
-        self.passage_size = passage_size
         
-        self._goal_default_pos = (1, 1)
+        self._goal_default_pos = (self.grid_size-2, 1)
 
         # set to 1 if agent is to be randomly spawned
         self.rnd_start = rnd_start
-
-        # If self.rnd_start =1, don't spawn in these rooms
-        self.start_state_exclude_rooms = start_state_exclude_rooms
 
         super().__init__(
             grid_size=grid_size,
@@ -55,10 +51,10 @@ class NineRoomsEnv(MiniGridSimple):
             see_through_walls=False
         )
 
-        self.nActions = len(NineRoomsEnv.NineRoomsCardinalActions)
+        self.nActions = len(EmptyGridWorld.CardnalActions)
 
         # Set the action and observation spaces
-        self.actions = NineRoomsEnv.NineRoomsCardinalActions
+        self.actions = EmptyGridWorld.CardnalActions
 
         self.action_space = spaces.Discrete(self.nActions)
 
@@ -84,7 +80,7 @@ class NineRoomsEnv(MiniGridSimple):
 
     def reward(self):
         # -1 for every action except if the action leads to the goal state
-        return 1 if self.success else 0 
+        return 1 if self.success else  -1 / self.T 
 
     def _gen_grid(self, width, height, val=False, seen=True):
 
@@ -97,34 +93,10 @@ class NineRoomsEnv(MiniGridSimple):
         self.grid.vert_wall(0, 0)
         self.grid.vert_wall(width - 1, 0)
 
-        # Place horizontal walls through the grid
-        self.grid.horz_wall(0, height //3)
-        self.grid.horz_wall(0, (2*height) // 3)
-
-        # Place vertical walls through the grid
-        self.grid.vert_wall(width//3, 0)
-        self.grid.vert_wall((2*width) //3, 0)
-
-        # Create passages
-        passage_anchors = [
-            ( width // 3, height//3),
-            (width // 3, (2*height) // 3),
-            ((2*width)// 3, height // 3),
-            ((2*width)//3, (2*height)//3)
-        ]
-        passage_cells = []
-        for anchor in passage_anchors:
-            for delta in range(-1*self.passage_size, self.passage_size+1):
-                passage_cells.append((anchor[0] + delta, anchor[1]))
-                passage_cells.append((anchor[0], anchor[1] + delta))
-        
-        for cell in passage_cells:
-            self.grid.set(*cell, None)
-
         # Even during validation, start state distribution
         # should be the same as that during training
         if not self.rnd_start:
-            self._agent_default_pos = ((width - 2) // 2, (height - 2) // 2)
+            self._agent_default_pos = (1, self.grid_size-2)
         else:
             self._agent_default_pos = None
 
@@ -133,59 +105,10 @@ class NineRoomsEnv(MiniGridSimple):
             self.start_pos = self._agent_default_pos
             self.grid.set(*self._agent_default_pos, None)
             self.start_dir = self._rand_int(0, 4)  # Agent direction doesn't matter
-        else:
-
-            if len(self.start_state_exclude_rooms) == 0:
-                self.place_agent()
-            else:
-                valid_start_pos = []
-                if seen:
-                    exclude_from = self.start_state_exclude_rooms
-                else:
-                    exclude_from = [x for x in range(1, 10) if x not in self.start_state_exclude_rooms]
-                for room in range(1, 10):
-                    if room in exclude_from:
-                        continue
-                    # Ignore that there are walls for now, can handle that with rejection sampling
-
-                    # Get x coordinates of allowed cells
-                    valid_x = []
-                    if room % 3 == 1:
-                        valid_x = list(range(1, width//3))
-                    elif room % 3 == 2:
-                        valid_x = list(range(width//3 +1, (2*width) // 3))
-                    else:
-                        valid_x = list(range((2*width) // 3 +1 , width-1))
-                    
-                    # Get valid y-coordinates of allowed cells
-                    valid_y = []
-                    if (room -1) // 3 == 0:
-                        valid_y = list(range(1, height//3))
-                    elif (room - 1) // 3 == 1:
-                        valid_y = list(range(height//3 + 1, (2*height) // 3))
-                    else:
-                        valid_y = list(range((2*height) // 3 +1 , height-1))
-                    
-                    room_cells = list(product(valid_x, valid_y))
-
-                    valid_start_pos += room_cells
-
-                # Make sure start position doesn't conflict with other cells
-                while True:
-
-                    _start_pos = valid_start_pos[np.random.choice(len(valid_start_pos))]
-                    row = _start_pos[1]
-                    col = _start_pos[0]
-                    cell = self.grid.get(row, col)
-
-                    if cell is None or cell.can_overlap():
-                        break
-                
-                self.start_pos = (col, row)
-                self.start_dir = self._rand_int(0, 4)  # Agent direction doesn't matter
 
         goal = Goal()
         self.grid.set(*self._goal_default_pos, goal)
+
         goal.init_pos = goal.curr_pos = self._goal_default_pos
 
         self.mission = goal.init_pos
@@ -262,12 +185,17 @@ class NineRoomsEnv(MiniGridSimple):
         """
         Encode the state to generate observation.
         """
+
         feat = np.ones(self.width * self.height, dtype=float)
-        curr_x, curr_y = state[1], state[0] 
+        curr_x, curr_y = state[0], state[1] 
 
         curr_pos = curr_y * self.width + curr_x
 
-        feat[curr_pos:] = 0
+        if self.state_encoding == "thermal":
+
+            feat[curr_pos:] = 0
+        elif self.state_encoding == "one-hot":
+            feat[:] = 0 
+            feat[curr_pos] = 1
 
         return feat 
-

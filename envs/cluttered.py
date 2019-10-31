@@ -13,11 +13,11 @@ sys.path.append(str(Path(__file__).parent))
 
 from minigrid_simple import MiniGridSimple
 
-class NineRoomsEnv(MiniGridSimple):
+class Cluttered(MiniGridSimple):
 
     # Only 4 actions needed, left, right, up and down
 
-    class NineRoomsCardinalActions(IntEnum):
+    class ClutteredCardinalActions(IntEnum):
         # Cardinal movement
         right = 0
         down = 1
@@ -30,24 +30,35 @@ class NineRoomsEnv(MiniGridSimple):
     def __init__(
         self,
         grid_size=20,
-        passage_size=1,
+        num_objects=5,
+        obj_size=3,
         max_steps=100,
         seed=133,
+        state_encoding="thermal",
         rnd_start=0,
-        start_state_exclude_rooms=[],
     ):
-        
+
+        self.state_encoding = state_encoding 
         self.grid_size = grid_size
-        self.passage_size = passage_size
+        self.num_objects = num_objects
+        self.obj_size = obj_size
         
-        self._goal_default_pos = (1, 1)
 
         # set to 1 if agent is to be randomly spawned
         self.rnd_start = rnd_start
+        self.grid_seed = 12
+
+        
+        # This only works for 15x15 grid with 6 obstacles
+        #self._goal_default_pos = (6, 10)
+
+        #self._goal_default_pos = (self.grid_size-2, self.grid_size-2)
+        self._goal_default_pos = (8, 8)
+
+        # This is used for some of the experiments.
+        self._agent_default_pos = (1, 1)
 
         # If self.rnd_start =1, don't spawn in these rooms
-        self.start_state_exclude_rooms = start_state_exclude_rooms
-
         super().__init__(
             grid_size=grid_size,
             max_steps=max_steps,
@@ -55,10 +66,10 @@ class NineRoomsEnv(MiniGridSimple):
             see_through_walls=False
         )
 
-        self.nActions = len(NineRoomsEnv.NineRoomsCardinalActions)
+        self.nActions = len(Cluttered.ClutteredCardinalActions)
 
         # Set the action and observation spaces
-        self.actions = NineRoomsEnv.NineRoomsCardinalActions
+        self.actions = Cluttered.ClutteredCardinalActions
 
         self.action_space = spaces.Discrete(self.nActions)
 
@@ -75,19 +86,17 @@ class NineRoomsEnv(MiniGridSimple):
         self.T = max_steps
 
 
-        # Change the observation space to return the position in the grid
 
-    @property
-    def category(self):
-        # [TODO] Make sure this doesn't break after self.agent_pos is changed to numpy.ndarray
-        return self.cell_cat_map[self.agent_pos] 
+        # Change the observation space to return the position in the grid
 
     def reward(self):
         # -1 for every action except if the action leads to the goal state
-        return 1 if self.success else 0 
+        #return 0 if self.success else -1 
+        return 0 if self.success else -1 / self.T 
 
     def _gen_grid(self, width, height, val=False, seen=True):
-
+        
+        assert width >= 10 and height >= 10, "Environment too small to place objects"
         # Create the grid
         self.grid = Grid(width, height)
 
@@ -97,98 +106,48 @@ class NineRoomsEnv(MiniGridSimple):
         self.grid.vert_wall(0, 0)
         self.grid.vert_wall(width - 1, 0)
 
-        # Place horizontal walls through the grid
-        self.grid.horz_wall(0, height //3)
-        self.grid.horz_wall(0, (2*height) // 3)
+        np.random.seed(self.grid_seed)
 
-        # Place vertical walls through the grid
-        self.grid.vert_wall(width//3, 0)
-        self.grid.vert_wall((2*width) //3, 0)
+        for obj_idx in range(self.num_objects):
 
-        # Create passages
-        passage_anchors = [
-            ( width // 3, height//3),
-            (width // 3, (2*height) // 3),
-            ((2*width)// 3, height // 3),
-            ((2*width)//3, (2*height)//3)
-        ]
-        passage_cells = []
-        for anchor in passage_anchors:
-            for delta in range(-1*self.passage_size, self.passage_size+1):
-                passage_cells.append((anchor[0] + delta, anchor[1]))
-                passage_cells.append((anchor[0], anchor[1] + delta))
-        
-        for cell in passage_cells:
-            self.grid.set(*cell, None)
+            while True:
+                c_x, c_y = np.random.choice(list(range(2, self.grid_size-3))), np.random.choice(list(range(2, self.grid_size-3)))
 
-        # Even during validation, start state distribution
-        # should be the same as that during training
-        if not self.rnd_start:
-            self._agent_default_pos = ((width - 2) // 2, (height - 2) // 2)
-        else:
-            self._agent_default_pos = None
+                obj_size = np.random.choice(list(range(1, self.obj_size+1)))
 
-        # Place the agent at the center
-        if self._agent_default_pos is not None:
-            self.start_pos = self._agent_default_pos
-            self.grid.set(*self._agent_default_pos, None)
-            self.start_dir = self._rand_int(0, 4)  # Agent direction doesn't matter
-        else:
-
-            if len(self.start_state_exclude_rooms) == 0:
-                self.place_agent()
-            else:
-                valid_start_pos = []
-                if seen:
-                    exclude_from = self.start_state_exclude_rooms
+                if obj_size == 3:
+                    cells = list(product([c_x-1, c_x, c_x+1], [c_y - 1, c_y, c_y + 1]))
+                elif obj_size == 2:
+                    cells = list(product([c_x, c_x+1], [c_y , c_y+1]))
+                elif obj_size == 1:
+                    cells = list(product([c_x], [c_y]))
                 else:
-                    exclude_from = [x for x in range(1, 10) if x not in self.start_state_exclude_rooms]
-                for room in range(1, 10):
-                    if room in exclude_from:
-                        continue
-                    # Ignore that there are walls for now, can handle that with rejection sampling
+                    raise ValueError
 
-                    # Get x coordinates of allowed cells
-                    valid_x = []
-                    if room % 3 == 1:
-                        valid_x = list(range(1, width//3))
-                    elif room % 3 == 2:
-                        valid_x = list(range(width//3 +1, (2*width) // 3))
-                    else:
-                        valid_x = list(range((2*width) // 3 +1 , width-1))
-                    
-                    # Get valid y-coordinates of allowed cells
-                    valid_y = []
-                    if (room -1) // 3 == 0:
-                        valid_y = list(range(1, height//3))
-                    elif (room - 1) // 3 == 1:
-                        valid_y = list(range(height//3 + 1, (2*height) // 3))
-                    else:
-                        valid_y = list(range((2*height) // 3 +1 , height-1))
-                    
-                    room_cells = list(product(valid_x, valid_y))
 
-                    valid_start_pos += room_cells
+                valid = True
+                for cell in cells:
+                    cell = self.grid.get(cell[0], cell[1])
 
-                # Make sure start position doesn't conflict with other cells
-                while True:
-
-                    _start_pos = valid_start_pos[np.random.choice(len(valid_start_pos))]
-                    row = _start_pos[1]
-                    col = _start_pos[0]
-                    cell = self.grid.get(row, col)
-
-                    if cell is None or cell.can_overlap():
+                    if not (cell is None or cell.can_overlap()):
+                        valid = False
                         break
                 
-                self.start_pos = (col, row)
-                self.start_dir = self._rand_int(0, 4)  # Agent direction doesn't matter
+                if valid:
+                    for cell in cells:
+                        self.grid.set(*cell, Wall())
+                    break
 
+        # Set the start position and the goal position depending upon where the obstacles are present
         goal = Goal()
+        # [NOTE] : This is a hack, add option to set goal location from arguments.
+
         self.grid.set(*self._goal_default_pos, goal)
         goal.init_pos = goal.curr_pos = self._goal_default_pos
 
         self.mission = goal.init_pos
+
+        self.start_pos = self._agent_default_pos
 
     def reset(self, val=False, seen=True):
 
@@ -266,8 +225,11 @@ class NineRoomsEnv(MiniGridSimple):
         curr_x, curr_y = state[1], state[0] 
 
         curr_pos = curr_y * self.width + curr_x
-
-        feat[curr_pos:] = 0
+        if self.state_encoding == "thermal":
+            feat[curr_pos:] = 0
+        elif self.state_encoding == "one-hot":
+            feat[:] = 0 
+            feat[curr_pos] = 1
 
         return feat 
 
