@@ -417,3 +417,204 @@ class MiniGridSimple(MiniGridEnv):
             self._unoccupied_y[start_index],
         )
         self.start_dir = 0
+    
+
+    
+    def run_dp(self):
+        '''
+        Given the current state of the grid and the goal location,
+        get optimal action for every state.
+
+        NOTE:
+        1. Given a goal, if there are nodes which are not reachable from the goal, raise error.
+        2. Maybe easier to work with binary matrix representing occupancy map of the grid.
+        3. Get shortest path from goal to every state, extract optimal actions later.
+        4. Represent Optimal Policy as a 2D numpy array, and return that along with the occupany map.
+            Don't add the data sampling method in the environment class.
+        '''
+
+        class Node(object):
+            def __init__(self, x, y):
+                self._x = x
+                self._y = y
+
+            @property
+            def x(self):
+                return self._x
+            
+            @property
+            def y(self):
+                return self._y
+            
+            def bounded(self, width, height):
+                return self._x >= 0 and self._x < width \
+                    and self._y >=0 and self._y < height
+            
+            def __hash__(self):
+                return hash((self.x, self.y))
+            
+            def __eq__(self, other):
+                return self.x == other.x and self.y == other.y
+
+            
+        class ActiveNodes(object):
+
+            def __init__(self):
+                self._nodes = {} 
+                self._top = None
+                self._count = 0
+            
+            def insert(self, node, dis):
+                assert node not in self._nodes, "Trying to insert an existing node."
+
+                self._nodes[node] = dis
+
+                self._count += 1
+
+                if self._top is None or self._nodes[self._top] > dis:
+                    self._top = node
+            
+            def remove(self, node):
+                ret = self._nodes.pop(node, None) 
+
+                if ret is not None:
+                    self._count -= 1
+
+                    if ret == self._top:
+                        self._top = self._min_node() 
+
+                return ret
+            
+            def empty(self):
+
+                return len(self._nodes.keys()) == 0
+
+            def top(self):
+                return self._top 
+            
+            def pop(self):
+                self._nodes.pop(self._top)
+
+                self._top = self._min_node() 
+
+            def dis(self, node):            
+                
+                assert node in self._nodes, "Node is not an active node. Can't get the distance."
+
+                return self._nodes[node]
+            
+            def update(self, node, dis):
+
+                assert node in self._nodes, "Node is not an active node. Can't update"
+
+                self._nodes[node] = dis
+
+                self._top = self._min_node()
+
+            def _min_node(self):
+                min_dis = float('inf')
+                min_node = None
+
+                for node, dis in self._nodes.items():
+                    if dis <= min_dis:
+                        min_dis = dis
+                        min_node = node 
+                
+                return min_node
+
+
+        grid = self.grid.encode()[:, :, 0] # 0th dimension has the occupancy map
+        grid[grid > 2] = 1 
+        grid[grid == 1] = 0
+        grid[grid == 2] = 1
+        goal = self.mission # (x, y)
+
+        AN = ActiveNodes() # Active Nodes for Running Dijkstra's
+        min_dis = {} # Map to contain finals distances 
+        
+
+        for i in range(self.width):
+            for j in range(self.height):
+                if i == goal[0] and j == goal[1]:
+                    dis = 0
+                else:
+                    dis = float('inf')
+
+                node = Node(i, j)
+                min_dis[node] = dis
+
+                AN.insert(node, dis)
+        
+        while not AN.empty():
+
+            top = AN.top()
+
+            d = min_dis[top]
+
+            AN.pop()
+
+            if d == float('inf'):
+                continue
+
+            x, y = top.x, top.y
+            # Check neighbors of top
+            _neighbors = [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
+            neighbors = []
+
+            for nb in _neighbors:
+                node = Node(nb[0], nb[1])
+                if node.bounded(self.width, self.height) and \
+                    grid[node.x, node.y] == 0:
+                        neighbors.append(node)
+            for nb in neighbors:
+                if min_dis[nb] > d+1:
+                    min_dis[nb] = d+1
+                    AN.update(nb, d+1)
+
+        '''Convert min_dist to numpy array (D) of size width x height''' 
+        
+        D = np.zeros((self.width, self.height))
+
+        for node, dis in min_dis.items():
+            D[node.x, node.y] = dis
+
+        '''Get the optimal policy (OP) as a 2D numpy array'''
+
+        OP = np.zeros((self.width, self.height), dtype=np.int8)
+
+
+        for i in range(self.width):
+            for j in range(self.height):
+
+                # Blocked cell, or goal cell,  optimal action is not defined
+                if D[i][j] == float('inf') or D[i][j] == 0:
+                    OP[i][j] = np.random.choice(4) 
+                    continue
+
+                # Pick optimal action based on the bellman optimality equation
+                d_left = d_right = d_up = d_down = float('inf')
+
+                if j-1 >=0:
+                    d_up = min(d_up, D[i][j-1])
+                if j+1 < self.height:
+                    d_down = min(d_down, D[i][j+1]) 
+                if i-1 >=0:
+                    d_left = min(d_left, D[i-1][j])
+                if i+1 < self.width:
+                    d_right = min(d_right, D[i+1][j])
+
+                potential_candidates = [] 
+                min_d = np.min([d_right, d_down, d_left, d_up])
+
+                if min_d == d_right:
+                    potential_candidates.append(0)
+                if min_d == d_down:
+                    potential_candidates.append(1)
+                if min_d == d_left:
+                    potential_candidates.append(2)
+                if min_d == d_up:
+                    potential_candidates.append(3)
+
+                OP[i][j] = np.random.choice(potential_candidates)
+        
+        return grid, D, OP
