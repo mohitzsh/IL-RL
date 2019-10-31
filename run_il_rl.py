@@ -151,6 +151,7 @@ if __name__ == '__main__':
         params['id'] = RUN_ID
         env_name = ("{id}_"
                     "--GS-{grid_size}"
+                    "--nbo-{nb_objects}"
                     "--ms-{max_steps}"
                     "--env-{env}"
                     "--pg-lr-{pg_lr}"
