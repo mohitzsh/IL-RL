@@ -53,10 +53,10 @@ class Cluttered(MiniGridSimple):
         #self._goal_default_pos = (6, 10)
 
         #self._goal_default_pos = (self.grid_size-2, self.grid_size-2)
-        self._goal_default_pos = (8, 8)
+        self._goal_default_pos = (7, 12)
 
         # This is used for some of the experiments.
-        self._agent_default_pos = (1, 1)
+        self._agent_default_pos = (7, 6)
 
         # If self.rnd_start =1, don't spawn in these rooms
         super().__init__(
@@ -113,7 +113,8 @@ class Cluttered(MiniGridSimple):
             while True:
                 c_x, c_y = np.random.choice(list(range(2, self.grid_size-3))), np.random.choice(list(range(2, self.grid_size-3)))
 
-                obj_size = np.random.choice(list(range(1, self.obj_size+1)))
+                #obj_size = np.random.choice(list(range(1, self.obj_size+1)))
+                obj_size = self.obj_size
 
                 if obj_size == 3:
                     cells = list(product([c_x-1, c_x, c_x+1], [c_y - 1, c_y, c_y + 1]))
